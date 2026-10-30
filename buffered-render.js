@@ -11,7 +11,7 @@
 import { EQ_BANDS, LAYERS } from './config.js';
 
 export const BUFFER_SECONDS = 120;
-export const BUFFER_RATE = 24000;
+export const BUFFER_RATE = 32000;
 export const BUFFER_CROSSFADE_SECONDS = 6;
 
 export function soundFingerprint(sound) {
