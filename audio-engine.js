@@ -224,6 +224,12 @@ export class NoiseEngine {
           if (typeof this.onStreamProgress === 'function') this.onStreamProgress(status);
         }
       });
+      this.streamPlayer.audio.addEventListener('ended', () => {
+        this.playing = false;
+        this.streamEndsAt = null;
+        this.logEvent('Opus stream reached prepared end');
+        if (typeof this.onStreamEnded === 'function') this.onStreamEnded();
+      });
     }
     const result = await this.streamPlayer.prepare(sound, minutes);
     this.streamPlayer.setLevel(this.level);
