@@ -174,7 +174,11 @@ export class NoiseEngine {
   }
 
   bufferedSound() {
-    return { mix: this.mix, eq: this.eq, storm: this.storm };
+    return {
+      mix: { ...this.mix },
+      eq: Object.fromEntries(Object.entries(this.eq).map(([id, gains]) => [id, [...gains]])),
+      storm: { ...this.storm }
+    };
   }
 
   isBufferedReady() {
