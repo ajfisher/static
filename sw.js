@@ -1,6 +1,6 @@
 // Minimal offline-first service worker. No runtime API calls or third-party requests.
 const CACHE_PREFIX = 'static-pwa-';
-const CACHE = `${CACHE_PREFIX}v4-irregular-motion`;
+const CACHE = `${CACHE_PREFIX}v4.1-background-output-test`;
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './app.js',
   './config.js',
   './audio-engine.js',
+  './audio-output.js',
   './noise-worklet.js',
   './thunder-worklet.js',
   './prime-motion-worklet.js',
