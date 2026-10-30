@@ -1,5 +1,6 @@
 // Minimal offline-first service worker. No runtime API calls or third-party requests.
-const CACHE = 'static-pwa-v4-irregular-motion';
+const CACHE_PREFIX = 'static-pwa-';
+const CACHE = `${CACHE_PREFIX}v4-irregular-motion`;
 const ASSETS = [
   './',
   './index.html',
@@ -26,7 +27,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     Promise.all([
-      caches.keys().then(names => Promise.all(names.filter(name => name !== CACHE).map(name => caches.delete(name)))),
+      caches.keys().then(names => Promise.all(names.filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE).map(name => caches.delete(name)))),
       self.clients.claim()
     ])
   );
@@ -37,6 +38,6 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+    caches.open(CACHE).then(cache => cache.match(event.request)).then(cached => cached || fetch(event.request))
   );
 });
