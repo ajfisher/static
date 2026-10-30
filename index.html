@@ -83,7 +83,13 @@
             <select id="outputMode" aria-label="Playback output mode">
               <option value="media">Media player (experimental)</option>
               <option value="direct">Direct Web Audio (original)</option>
+              <option value="buffered">Buffered media (pre-rendered)</option>
             </select>
+            <div id="bufferedControls" class="buffered-controls" hidden>
+              <button type="button" id="prepareBufferedBtn" class="utility-button">Prepare buffered sound</button>
+              <p id="bufferedStatus" role="status">Not prepared. Press Prepare, then Play.</p>
+              <p class="micro-note">Two-minute loop with a six-second seam crossfade. Changes to EQ or layer mixes require preparing again. The stop timer may be delayed while Android throttles background JavaScript.</p>
+            </div>
             <p class="micro-note" id="outputModeNote">Media player routes the synthetic sound through an audio element, which may improve Android lock-screen playback. Stop before switching.</p>
             <details id="audioDiagnostics">
               <summary>Playback diagnostics</summary>
