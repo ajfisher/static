@@ -1,6 +1,8 @@
 import { EQ_BANDS, LAYERS, STORM_DEFAULTS, blankEQ } from './config.js';
 import { AudioOutputRoute, OUTPUT_MODES } from './audio-output.js';
 import { BufferedPlayback } from './buffered-playback.js';
+import { OpusMsePlayer } from './opus-stream.js';
+import { soundFingerprint } from './buffered-render.js';
 
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 const fadeSeconds = 18;
@@ -34,6 +36,9 @@ export class NoiseEngine {
     this.outputMode = 'media';
     this.bufferedPlayer = null;
     this.bufferedEndsAt = null;
+    this.streamPlayer = null;
+    this.streamEndsAt = null;
+    this.onStreamProgress = null;
     this.events = [];
     this.playing = false;
     this.level = 37;
@@ -65,7 +70,7 @@ export class NoiseEngine {
       master.gain.value = 0;
       compressor.connect(master);
       const route = new AudioOutputRoute(context, master);
-      route.setMode(this.outputMode === 'buffered' ? 'media' : this.outputMode);
+      route.setMode(['buffered', 'stream'].includes(this.outputMode) ? 'media' : this.outputMode);
       route.element.addEventListener('pause', () => this.logEvent('media paused'));
       route.element.addEventListener('playing', () => this.logEvent('media playing'));
       context.addEventListener('statechange', () => this.logEvent(`context ${context.state}`));
@@ -154,21 +159,26 @@ export class NoiseEngine {
   }
 
   setOutputMode(mode) {
-    if (mode !== 'buffered' && !OUTPUT_MODES.includes(mode)) throw new Error('Unknown audio output mode');
+    if (!['buffered', 'stream', ...OUTPUT_MODES].includes(mode)) throw new Error('Unknown audio output mode');
     if (this.playing) throw new Error('Stop audio before changing output mode');
     this.outputMode = mode;
-    this.route?.setMode(mode === 'buffered' ? 'media' : mode);
+    this.route?.setMode(['buffered', 'stream'].includes(mode) ? 'media' : mode);
     this.logEvent(`output mode ${mode}`);
   }
 
   getDiagnostics() {
     return {
       mode: this.outputMode,
-      context: this.outputMode === 'buffered' ? 'not required during playback' : (this.context?.state || 'not started'),
+      context: ['buffered', 'stream'].includes(this.outputMode)
+        ? 'not required during playback'
+        : (this.context?.state || 'not started'),
       mediaPaused: this.outputMode === 'buffered'
         ? (this.bufferedPlayer?.audio.paused ?? null)
-        : (this.route?.element.paused ?? null),
+        : this.outputMode === 'stream'
+          ? (this.streamPlayer?.audio.paused ?? null)
+          : (this.route?.element.paused ?? null),
       buffered: this.bufferedPlayer?.getStatus() || null,
+      stream: this.streamPlayer?.getStatus() || null,
       events: [...this.events]
     };
   }
@@ -192,6 +202,32 @@ export class NoiseEngine {
     const result = await this.bufferedPlayer.prepare(this.bufferedSound());
     this.bufferedPlayer.setLevel(this.level);
     this.logEvent('buffer prepared: ' + Math.round(result.bytes / 1024 / 1024) + ' MB');
+    return result;
+  }
+
+  isStreamReady() {
+    return !!this.streamPlayer?.isReady(this.bufferedSound());
+  }
+
+  async prepareStream(minutes = 3) {
+    if (this.outputMode !== 'stream') throw new Error('Select Opus stream output first');
+    const sound = this.bufferedSound();
+    if (this.streamPlayer && this.streamPlayer.soundKey
+        && this.streamPlayer.soundKey !== soundFingerprint(sound)) {
+      if (this.playing) throw new Error('Stop playback before changing the stream mix');
+      this.streamPlayer.dispose();
+      this.streamPlayer = null;
+    }
+    if (!this.streamPlayer) {
+      this.streamPlayer = new OpusMsePlayer({
+        onProgress: status => {
+          if (typeof this.onStreamProgress === 'function') this.onStreamProgress(status);
+        }
+      });
+    }
+    const result = await this.streamPlayer.prepare(sound, minutes);
+    this.streamPlayer.setLevel(this.level);
+    this.logEvent('Opus stream prepared to ' + result.seconds + ' seconds');
     return result;
   }
 
@@ -264,7 +300,7 @@ export class NoiseEngine {
   }
 
   triggerThunder() {
-    if (this.outputMode === 'buffered') return false;
+    if (this.outputMode === 'buffered' || this.outputMode === 'stream') return false;
     this.channels.get('thunder')?.source.port.postMessage({ type: 'trigger' });
     return true;
   }
@@ -273,12 +309,15 @@ export class NoiseEngine {
     this.level = level;
     this.updateMaster();
     this.bufferedPlayer?.setLevel(level);
+    this.streamPlayer?.setLevel(level);
   }
 
   setTimer(minutes) {
     this.timerMinutes = minutes;
     if (this.outputMode === 'buffered') {
       this.bufferedEndsAt = this.playing && minutes > 0 ? Date.now() + minutes * 60000 : null;
+    } else if (this.outputMode === 'stream') {
+      this.streamEndsAt = this.playing && minutes > 0 ? Date.now() + minutes * 60000 : null;
     } else {
       this.endsAt = this.playing && minutes > 0
         ? this.context.currentTime + minutes * 60
@@ -288,6 +327,11 @@ export class NoiseEngine {
   }
 
   getRemainingSeconds() {
+    if (this.outputMode === 'stream') {
+      return this.playing && this.streamEndsAt !== null
+        ? Math.max(0, Math.ceil((this.streamEndsAt - Date.now()) / 1000))
+        : null;
+    }
     if (this.outputMode === 'buffered') {
       return this.playing && this.bufferedEndsAt !== null
         ? Math.max(0, Math.ceil((this.bufferedEndsAt - Date.now()) / 1000))
@@ -298,6 +342,18 @@ export class NoiseEngine {
   }
 
   async play() {
+    if (this.outputMode === 'stream') {
+      if (!this.isStreamReady()) throw new Error('Prepare the Opus stream first');
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'playback'; } catch (_) {}
+      }
+      // The browser gesture must reach HTMLMediaElement.play before any await.
+      await this.streamPlayer.play(this.bufferedSound());
+      this.playing = true;
+      this.streamEndsAt = this.timerMinutes > 0 ? Date.now() + this.timerMinutes * 60000 : null;
+      this.logEvent('Opus MSE playback started');
+      return;
+    }
     if (this.outputMode === 'buffered') {
       if (!this.isBufferedReady()) throw new Error('Prepare the buffered sound before pressing Play');
       if (navigator.audioSession) {
@@ -333,6 +389,13 @@ export class NoiseEngine {
   }
 
   async stop() {
+    if (this.outputMode === 'stream') {
+      this.playing = false;
+      this.streamEndsAt = null;
+      this.streamPlayer?.stop();
+      this.logEvent('Opus MSE playback stopped');
+      return;
+    }
     if (this.outputMode === 'buffered') {
       this.playing = false;
       this.bufferedEndsAt = null;
