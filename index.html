@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c161a">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Offline procedural noise mixer with personal presets, EQ and synthesised thunder.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Static · Offline noise</title>
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Static home">
+        <svg class="brand-symbol" viewBox="0 0 42 42" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="40" height="40" rx="12" fill="#c9f1e4"/>
+          <path d="M9 23V19M15 28V14M21 31V11M27 27V15M33 24V18" stroke="#122b27" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span>static<span class="brand-dot">.</span></span>
+      </a>
+      <div class="header-actions">
+        <span class="status-indicator" aria-live="polite"><i class="status-dot"></i><span id="offlineStatus">Checking offline mode</span></span>
+        <button id="installBtn" class="install-btn" type="button" hidden>Install app</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="intro">
+        <div class="eyebrow"><span class="eyebrow-rule"></span> OFFLINE SOUND GENERATOR</div>
+        <h1>Less distraction.<br><em>More quiet.</em></h1>
+        <p>Eight synthetic sound layers, mixed on your device. Works without a connection once installed.</p>
+      </div>
+
+      <div class="workspace">
+        <section class="player-panel" aria-labelledby="playerHeading">
+          <div class="panel-topline">
+            <span class="small-heading" id="playerHeading">PLAYBACK</span>
+            <span class="panel-index">01 / 02</span>
+          </div>
+
+          <div class="orb-container" id="visualiser" aria-hidden="true">
+            <div class="orb-glow"></div>
+            <div class="orb-ring orb-ring-outer"></div>
+            <div class="orb-ring orb-ring-mid"></div>
+            <div class="orb-ring orb-ring-inner"></div>
+            <div class="orb-core">
+              <div class="eq-bars">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="playing-info">
+            <div class="now-playing" id="stateText">Ready when you are</div>
+            <h2 id="mixTitle">Focus</h2>
+            <p id="mixDescription">A balanced wash for working</p>
+          </div>
+
+          <div class="play-controls">
+            <button type="button" id="playBtn" class="play-button" aria-label="Play sound" aria-pressed="false">
+              <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.2a1 1 0 0 1 1.52-.85l10.05 6.8a1 1 0 0 1 0 1.7L9.52 19.65A1 1 0 0 1 8 18.8V5.2Z"/></svg>
+              <span id="playLabel">Play</span>
+            </button>
+            <span id="statusText" class="play-status" role="status">Sound stopped</span>
+          </div>
+
+          <div class="master-section">
+            <div class="control-heading">
+              <label for="master">Master volume</label>
+              <output id="masterOutput" for="master">37%</output>
+            </div>
+            <input type="range" id="master" min="0" max="100" step="1" value="37" aria-label="Master volume">
+            <p class="micro-note">Start low when using headphones.</p>
+          </div>
+
+          <div class="timer-section">
+            <div>
+              <label for="timer">Stop timer</label>
+              <span id="timerRemaining" aria-live="off">No timer</span>
+            </div>
+            <select id="timer" aria-label="Stop timer">
+              <option value="0">Off</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="240">4 hours</option>
+            </select>
+          </div>
+          <div id="errorBanner" class="error-banner" hidden role="alert"></div>
+        </section>
+
+        <section class="mixer-panel" aria-labelledby="mixerHeading">
+          <div class="panel-topline">
+            <span class="small-heading" id="mixerHeading">YOUR MIX</span>
+            <span class="panel-index">02 / 02</span>
+          </div>
+          <div class="mixer-title-row">
+            <h2>Find your balance.</h2>
+            <button type="button" id="resetBtn" class="reset-button" title="Restore default mix">Reset</button>
+          </div>
+          <p class="mixer-description">Mix the layers, then open <strong>EQ</strong> to shape five frequency bands independently for each sound. Thunder events are generated on-device.</p>
+          <div class="presets" id="presets" role="group" aria-label="Noise presets"></div>
+          <section class="personal-box" aria-labelledby="personalHeading">
+            <div class="personal-heading">
+              <div><h3 id="personalHeading">My presets</h3><p>Keep your own mixes on this device.</p></div>
+              <div class="personal-backup">
+                <button id="exportPersonalBtn" type="button" class="utility-button">Export</button>
+                <button id="importPersonalBtn" type="button" class="utility-button">Import</button>
+                <input id="importPersonalFile" type="file" accept=".json,application/json" hidden aria-label="Import saved presets from JSON">
+              </div>
+            </div>
+            <div id="personalPresets" class="personal-list" aria-label="Saved personal presets"></div>
+            <div class="personal-actions">
+              <label for="personalName" class="sr-only">Preset name</label>
+              <input type="text" id="personalName" maxlength="48" placeholder="Name this mix, e.g. Soft flight" autocomplete="off">
+              <button id="saveNewPersonalBtn" type="button" class="save-button">Save new</button>
+            </div>
+            <div class="selected-preset-actions" id="selectedPresetActions" hidden>
+              <span>Selected preset</span>
+              <div><button id="updatePersonalBtn" type="button" class="utility-button">Update / rename</button>
+              <button id="deletePersonalBtn" type="button" class="utility-button danger">Delete</button></div>
+            </div>
+            <p id="personalNotice" class="personal-notice" role="status" aria-live="polite"></p>
+          </section>
+          <section class="storm-box" aria-labelledby="stormHeading">
+            <div class="storm-title"><div><h3 id="stormHeading">Thunder behaviour</h3><p>Irregular, synthesised rumbles. No recordings.</p></div>
+              <button id="triggerThunderBtn" class="utility-button" type="button">Try thunder</button>
+            </div>
+            <div class="storm-row"><div class="control-heading"><label for="stormDistance">Distance</label><output id="stormDistanceOutput" for="stormDistance">72% · distant</output></div>
+            <input id="stormDistance" type="range" min="0" max="100" value="72" step="1" aria-label="Thunder distance, close to distant"></div>
+            <div class="storm-row"><div class="control-heading"><label for="stormActivity">Activity</label><output id="stormActivityOutput" for="stormActivity">45%</output></div>
+            <input id="stormActivity" type="range" min="0" max="100" value="45" step="1" aria-label="How often thunder occurs"></div>
+            <p class="micro-note">Activity at 0 disables automatic strikes. Try thunder plays a single event immediately; increase the Thunder layer to hear it.</p>
+          </section>
+          <div class="layers" id="layers" aria-label="Synthetic noise layer mixer"></div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <span><span class="footer-icon">◎</span> Generated locally, no recordings or analytics</span>
+        <span>Chrome on Android · Works in aeroplane mode after installation</span>
+      </footer>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
