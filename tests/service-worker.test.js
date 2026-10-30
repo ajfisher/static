@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const SOURCE = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
-const CURRENT_CACHE = 'static-pwa-v4.1-background-output-test';
+const CURRENT_CACHE = 'static-pwa-v4.2-buffered-lockscreen-test';
 
 function createWorker(initialCaches = {}) {
   const names = new Set(Object.keys(initialCaches));
@@ -68,6 +68,7 @@ test('activation removes only obsolete Static caches, not other PWAs on the orig
     [CURRENT_CACHE]: new Map(),
     'static-pwa-v3-something': new Map(),
     'static-pwa-v4-irregular-motion': new Map(),
+    'static-pwa-v4.1-background-output-test': new Map(),
     'static-pwa-v2-something': new Map(),
     'unrelated-pwa-v1': new Map(),
     'another-project-cache': new Map()
@@ -75,7 +76,7 @@ test('activation removes only obsolete Static caches, not other PWAs on the orig
 
   await activate(worker);
 
-  assert.deepEqual(worker.deleted.sort(), ['static-pwa-v2-something', 'static-pwa-v3-something', 'static-pwa-v4-irregular-motion']);
+  assert.deepEqual(worker.deleted.sort(), ['static-pwa-v2-something', 'static-pwa-v3-something', 'static-pwa-v4-irregular-motion', 'static-pwa-v4.1-background-output-test']);
   assert.deepEqual([...worker.names].sort(), [CURRENT_CACHE, 'another-project-cache', 'unrelated-pwa-v1'].sort());
   assert.equal(worker.claimed(), true);
 });

@@ -1,5 +1,6 @@
 import { EQ_BANDS, LAYERS, STORM_DEFAULTS, blankEQ } from './config.js';
 import { AudioOutputRoute, OUTPUT_MODES } from './audio-output.js';
+import { BufferedPlayback } from './buffered-playback.js';
 
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 const fadeSeconds = 18;
@@ -31,6 +32,8 @@ export class NoiseEngine {
     this.compressor = null;
     this.route = null;
     this.outputMode = 'media';
+    this.bufferedPlayer = null;
+    this.bufferedEndsAt = null;
     this.events = [];
     this.playing = false;
     this.level = 37;
@@ -62,7 +65,7 @@ export class NoiseEngine {
       master.gain.value = 0;
       compressor.connect(master);
       const route = new AudioOutputRoute(context, master);
-      route.setMode(this.outputMode);
+      route.setMode(this.outputMode === 'buffered' ? 'media' : this.outputMode);
       route.element.addEventListener('pause', () => this.logEvent('media paused'));
       route.element.addEventListener('playing', () => this.logEvent('media playing'));
       context.addEventListener('statechange', () => this.logEvent(`context ${context.state}`));
@@ -151,20 +154,45 @@ export class NoiseEngine {
   }
 
   setOutputMode(mode) {
-    if (!OUTPUT_MODES.includes(mode)) throw new Error('Unknown audio output mode');
+    if (mode !== 'buffered' && !OUTPUT_MODES.includes(mode)) throw new Error('Unknown audio output mode');
     if (this.playing) throw new Error('Stop audio before changing output mode');
     this.outputMode = mode;
-    this.route?.setMode(mode);
+    this.route?.setMode(mode === 'buffered' ? 'media' : mode);
     this.logEvent(`output mode ${mode}`);
   }
 
   getDiagnostics() {
     return {
       mode: this.outputMode,
-      context: this.context?.state || 'not started',
-      mediaPaused: this.route?.element.paused ?? null,
+      context: this.outputMode === 'buffered' ? 'not required during playback' : (this.context?.state || 'not started'),
+      mediaPaused: this.outputMode === 'buffered'
+        ? (this.bufferedPlayer?.audio.paused ?? null)
+        : (this.route?.element.paused ?? null),
+      buffered: this.bufferedPlayer?.getStatus() || null,
       events: [...this.events]
     };
+  }
+
+  bufferedSound() {
+    return {
+      mix: { ...this.mix },
+      eq: Object.fromEntries(Object.entries(this.eq).map(([id, gains]) => [id, [...gains]])),
+      storm: { ...this.storm }
+    };
+  }
+
+  isBufferedReady() {
+    return !!this.bufferedPlayer?.isReady(this.bufferedSound());
+  }
+
+  async prepareBuffered() {
+    if (this.outputMode !== 'buffered') throw new Error('Choose Buffered playback first');
+    if (this.playing) throw new Error('Stop playback before preparing a new buffer');
+    if (!this.bufferedPlayer) this.bufferedPlayer = new BufferedPlayback();
+    const result = await this.bufferedPlayer.prepare(this.bufferedSound());
+    this.bufferedPlayer.setLevel(this.level);
+    this.logEvent('buffer prepared: ' + Math.round(result.bytes / 1024 / 1024) + ' MB');
+    return result;
   }
 
   mixGain(amount, calibration) {
@@ -236,28 +264,53 @@ export class NoiseEngine {
   }
 
   triggerThunder() {
+    if (this.outputMode === 'buffered') return false;
     this.channels.get('thunder')?.source.port.postMessage({ type: 'trigger' });
+    return true;
   }
 
   setLevel(level) {
     this.level = level;
     this.updateMaster();
+    this.bufferedPlayer?.setLevel(level);
   }
 
   setTimer(minutes) {
     this.timerMinutes = minutes;
-    this.endsAt = this.playing && minutes > 0
-      ? this.context.currentTime + minutes * 60
-      : null;
-    this.updateMaster();
+    if (this.outputMode === 'buffered') {
+      this.bufferedEndsAt = this.playing && minutes > 0 ? Date.now() + minutes * 60000 : null;
+    } else {
+      this.endsAt = this.playing && minutes > 0
+        ? this.context.currentTime + minutes * 60
+        : null;
+      this.updateMaster();
+    }
   }
 
   getRemainingSeconds() {
+    if (this.outputMode === 'buffered') {
+      return this.playing && this.bufferedEndsAt !== null
+        ? Math.max(0, Math.ceil((this.bufferedEndsAt - Date.now()) / 1000))
+        : null;
+    }
     if (!this.playing || this.endsAt === null || !this.context) return null;
     return Math.max(0, Math.ceil(this.endsAt - this.context.currentTime));
   }
 
   async play() {
+    if (this.outputMode === 'buffered') {
+      if (!this.isBufferedReady()) throw new Error('Prepare the buffered sound before pressing Play');
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'playback'; } catch (_) { /* optional */ }
+      }
+      // Call the media element synchronously in this gesture before awaiting.
+      const started = this.bufferedPlayer.play(this.bufferedSound());
+      await started;
+      this.playing = true;
+      this.bufferedEndsAt = this.timerMinutes > 0 ? Date.now() + this.timerMinutes * 60000 : null;
+      this.logEvent('buffered media playback started');
+      return;
+    }
     await this.initialise();
     if (navigator.audioSession) {
       try { navigator.audioSession.type = 'playback'; } catch (_) { /* optional */ }
@@ -280,6 +333,13 @@ export class NoiseEngine {
   }
 
   async stop() {
+    if (this.outputMode === 'buffered') {
+      this.playing = false;
+      this.bufferedEndsAt = null;
+      this.bufferedPlayer?.stop();
+      this.logEvent('buffered media playback stopped');
+      return;
+    }
     if (!this.context) return;
     this.playing = false;
     this.endsAt = null;

@@ -14,6 +14,23 @@ An Android-first PWA. No build system, dependencies, network requests, audio rec
 - Stop timer with 18-second audio-clock fade, media session support and responsive layout
 - Zero external assets or services
 
+## Android buffered playback experiment (v4.2)
+
+Earlier Android tests showed that **Direct Web Audio** chopped continuously on lock, whereas **Media player** improved but still chopped in recurring intervals roughly every minute.
+
+**Buffered media** is an independent test of the next hypothesis. It uses `OfflineAudioContext` and Static's existing synthetic AudioWorklet processors **while the screen is on** to prepare a **two-minute stereo WAV (32 kHz, approximately 15 MB)**, then loops it using an ordinary HTML `<audio>` element. There is no live AudioContext during buffered playback. All assets and generation remain on-device and offline.
+
+To test on Android:
+1. Choose **Buffered media (pre-rendered)** in the Background audio test selector.
+2. Choose Flight, Waves or a saved personal mix, then select **Prepare buffered sound**. Keep the app foregrounded during preparation.
+3. Once ready, press **Play**. This second tap is intentional: Android's autoplay restriction may reject media playback after the asynchronous rendering operation finishes.
+4. Lock the screen for five to ten minutes, preferably using the same Bluetooth headphones as the earlier tests.
+5. Compare against Media player and Direct output. Open Playback diagnostics when you return.
+
+Current constraints: this is a **finite two-minute repeating loop**, although the join is crossfaded. Layer and EQ adjustments made while it is playing are not live; Stop, Prepare and Play again to apply them. The master volume works immediately. On-demand thunder cannot be injected into a pre-recorded loop. The stop timer is best effort, because Android may throttle the page's background timers. Prepared buffers are kept in memory, not IndexedDB, so reopening the app requires preparation again. Future versions could build longer-form tracks, add a render cache, or use a native Android foreground playback service if browser audio remains unreliable.
+
+This is a prototype requiring real Android testing, not a confirmed background-audio fix.
+
 ## Android background playback experiment (v4.1)
 
 On some Android/Chrome combinations, direct Web Audio output stutters repeatedly with the screen locked, but immediately recovers when the phone is foregrounded. This version adds an **A/B output mode** under Playback:
@@ -89,3 +106,5 @@ npm test   # only Node's built-in test runner; no dependencies
 - Rain body uses 7, 13 and 31 second periods, while higher-frequency patter uses 5, 11 and 23 seconds. Their gain and tone variation is deliberately subtler than waves.
 - Modulation uses smooth control signals in the AudioWorklet, with no random audio discontinuities or main-thread timer dependency. The underlying noise sources remain continuous and independently EQ-able.
 - This is a sound-design iteration, not an acoustic simulation. Evaluate in headphones at a comfortable volume; the most useful feedback is whether the wave and rain patterns still sound mechanical.
+
+- `buffered-render.js` and `buffered-playback.js`: OfflineAudioContext rendering, PCM WAV looping and HTML media playback

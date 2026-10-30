@@ -211,3 +211,9 @@ select { appearance: none; background: #1d3638 url("data:image/svg+xml,%3Csvg xm
 .playback-test details { margin-top: 12px; font-size: 11px; color: var(--muted); }
 .playback-test summary { cursor: pointer; }
 .playback-test pre { padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; background: #0b1c20; border-radius: 7px; }
+
+/* Buffered lock-screen test; a separate pre-rendered PCM media source. */
+.buffered-controls { padding: 12px; border: 1px solid #42645a; background: #132d2d; border-radius: 9px; margin: 11px 0; }
+.buffered-controls .utility-button { width: 100%; padding: 11px; font-weight: 700; }
+.buffered-controls p { margin: 9px 0 0; color: #bad9ce; font-size: 11px; line-height: 1.6; }
+.buffered-controls .micro-note { color: #94b7a9; }

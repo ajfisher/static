@@ -19,7 +19,10 @@ function cleanEQ(saved) {
 const engine = new NoiseEngine();
 const outputModeStorageKey = 'static.output-mode';
 let outputMode = 'media';
-try { outputMode = localStorage.getItem(outputModeStorageKey) === 'direct' ? 'direct' : 'media'; } catch (_) { /* storage optional */ }
+try {
+  const saved = localStorage.getItem(outputModeStorageKey);
+  outputMode = ['media', 'direct', 'buffered'].includes(saved) ? saved : 'media';
+} catch (_) { /* storage optional */ }
 engine.setOutputMode(outputMode);
 const outputModeSelect = $('#outputMode');
 outputModeSelect.value = outputMode;
@@ -29,6 +32,8 @@ function renderDiagnostics() {
     `Output: ${diagnostic.mode}`,
     `AudioContext: ${diagnostic.context}`,
     `Media element paused: ${diagnostic.mediaPaused ?? 'not created'}`,
+    `Buffered ready: ${diagnostic.buffered?.ready ?? false}`,
+    `Buffered file bytes: ${diagnostic.buffered?.bytes ?? 0}`,
     `Page: ${document.visibilityState}`,
     '',
     ...diagnostic.events.map(event => `${event.at}  ${event.message}`)
@@ -40,9 +45,7 @@ outputModeSelect.addEventListener('change', event => {
     engine.setOutputMode(next);
     outputMode = next;
     try { localStorage.setItem(outputModeStorageKey, next); } catch (_) {}
-    $('#outputModeNote').textContent = next === 'media'
-      ? 'Media player routes synthesised audio through an HTML audio element. Test with the screen locked.'
-      : 'Original v4 Web Audio output. Use to compare lock-screen behaviour.';
+    renderOutputModeHelp();
     renderDiagnostics();
   } catch (error) {
     event.target.value = outputMode;
@@ -51,9 +54,59 @@ outputModeSelect.addEventListener('change', event => {
 });
 document.addEventListener('visibilitychange', () => {
   engine.logEvent(`page ${document.visibilityState}; context ${engine.context?.state || 'not started'}`);
-  if (!document.hidden) renderDiagnostics();
+  if (!document.hidden) {
+    renderDiagnostics();
+    updateTimerDisplay();
+  }
 });
 $('#audioDiagnostics').addEventListener('toggle', renderDiagnostics);
+
+function renderOutputModeHelp() {
+  const messages = {
+    media: 'Live synthesis through a media element. Improves some lock-screen periods but may still stutter.',
+    direct: 'Original direct Web Audio output. Your Android test found persistent stuttering under lock.',
+    buffered: 'Prepare a two-minute WAV while foregrounded, then press Play. No live synthesis is needed while locked.'
+  };
+  $('#outputModeNote').textContent = messages[outputMode];
+  $('#bufferedControls').hidden = outputMode !== 'buffered';
+  renderBufferedStatus();
+}
+
+function renderBufferedStatus() {
+  const ready = engine.isBufferedReady();
+  $('#bufferedStatus').textContent = engine.playing && outputMode === 'buffered'
+    ? (ready ? 'Playing prepared audio. EQ and mix edits apply after preparing again.' : 'Playing previous sound; changes need preparing again.')
+    : (ready ? 'Ready to play. Prepared sound matches the current mix.' : 'Not prepared for this mix. Press Prepare, then Play.');
+  $('#prepareBufferedBtn').disabled = engine.playing;
+}
+$('#prepareBufferedBtn').addEventListener('click', async () => {
+  if (engine.playing) return;
+  const btn = $('#prepareBufferedBtn');
+  const play = $('#playBtn');
+  btn.disabled = true;
+  play.disabled = true;
+  outputModeSelect.disabled = true;
+  $('#bufferedStatus').textContent = 'Generating audio locally. Keep Static in the foreground…';
+  $('#errorBanner').hidden = true;
+  try {
+    engine.setMix(state.mix);
+    engine.setAllEQ(state.eq);
+    engine.setStorm(state.storm);
+    engine.setLevel(state.level);
+    const result = await engine.prepareBuffered();
+    $('#bufferedStatus').textContent = 'Ready: ' + (result.bytes / 1048576).toFixed(1) + ' MB generated. Press Play.';
+    renderDiagnostics();
+  } catch (error) {
+    $('#bufferedStatus').textContent = 'Preparation failed: ' + (error.message || error);
+    $('#errorBanner').hidden = false;
+    $('#errorBanner').textContent = 'Unable to prepare buffered sound: ' + (error.message || error);
+  } finally {
+    btn.disabled = false;
+    play.disabled = false;
+    outputModeSelect.disabled = false;
+  }
+});
+renderOutputModeHelp();
 
 let state = {
   preset: 'focus',
@@ -377,7 +430,10 @@ $('#triggerThunderBtn').addEventListener('click', () => {
     presetNotice('Increase the Thunder layer before trying a strike.');
     return;
   }
-  engine.triggerThunder();
+  if (!engine.triggerThunder()) {
+    presetNotice('Manual thunder works in live output modes. Buffered mode uses a pre-generated storm.');
+    return;
+  }
   presetNotice('Thunder triggered.');
 });
 
@@ -388,6 +444,7 @@ function updateCurrentSound() {
   $('#mixDescription').textContent = preset?.description || (personal ? 'Your saved personal sound' : 'Your own balance of synthetic noise');
   $('#visualiser').style.setProperty('--intensity', Math.max(0.3,
     Object.values(state.mix).reduce((sum, val) => sum + val, 0) / 250).toFixed(2));
+  renderBufferedStatus();
 }
 
 function updatePlayer() {
@@ -403,6 +460,7 @@ function updatePlayer() {
   $('#stateText').textContent = playing ? 'Now playing' : 'Ready when you are';
   $('#statusText').textContent = playing ? 'Playing on this device' : 'Sound stopped';
   outputModeSelect.disabled = playing;
+  renderBufferedStatus();
   renderDiagnostics();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
@@ -429,6 +487,11 @@ function updateTimerDisplay() {
 let busy = false;
 async function playAudio() {
   if (busy || engine.playing) return;
+  if (outputMode === 'buffered' && !engine.isBufferedReady()) {
+    $('#errorBanner').hidden = false;
+    $('#errorBanner').textContent = 'Press Prepare to generate audio for this mix, then press Play.';
+    return;
+  }
   busy = true;
   const button = $('#playBtn');
   button.disabled = true;
@@ -444,6 +507,7 @@ async function playAudio() {
     updatePlayer();
     updateTimerDisplay();
     renderDiagnostics();
+    renderBufferedStatus();
   } catch (error) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = `Couldn't start audio: ${error.message || error}`;
@@ -471,6 +535,7 @@ async function stopAudio() {
     updatePlayer();
     updateTimerDisplay();
     renderDiagnostics();
+    renderBufferedStatus();
   }
 }
 
