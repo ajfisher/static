@@ -1,4 +1,5 @@
 import { EQ_BANDS, LAYERS, STORM_DEFAULTS, blankEQ } from './config.js';
+import { AudioOutputRoute, OUTPUT_MODES } from './audio-output.js';
 
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 const fadeSeconds = 18;
@@ -28,6 +29,9 @@ export class NoiseEngine {
     this.channels = new Map();
     this.master = null;
     this.compressor = null;
+    this.route = null;
+    this.outputMode = 'media';
+    this.events = [];
     this.playing = false;
     this.level = 37;
     this.mix = Object.fromEntries(LAYERS.map(layer => [layer.id, 0]));
@@ -56,7 +60,12 @@ export class NoiseEngine {
       compressor.release.value = 0.3;
       const master = context.createGain();
       master.gain.value = 0;
-      compressor.connect(master).connect(context.destination);
+      compressor.connect(master);
+      const route = new AudioOutputRoute(context, master);
+      route.setMode(this.outputMode);
+      route.element.addEventListener('pause', () => this.logEvent('media paused'));
+      route.element.addEventListener('playing', () => this.logEvent('media playing'));
+      context.addEventListener('statechange', () => this.logEvent(`context ${context.state}`));
 
       for (const layer of LAYERS) {
         const isThunder = layer.source === 'thunder';
@@ -126,6 +135,7 @@ export class NoiseEngine {
       this.context = context;
       this.master = master;
       this.compressor = compressor;
+      this.route = route;
       // start/resume happens only after the user presses Play.
       await context.suspend();
       this.updateLevels();
@@ -133,6 +143,28 @@ export class NoiseEngine {
       await context.close().catch(() => {});
       throw error;
     }
+  }
+
+  logEvent(message) {
+    this.events.push({ at: new Date().toLocaleTimeString(), message });
+    if (this.events.length > 24) this.events.shift();
+  }
+
+  setOutputMode(mode) {
+    if (!OUTPUT_MODES.includes(mode)) throw new Error('Unknown audio output mode');
+    if (this.playing) throw new Error('Stop audio before changing output mode');
+    this.outputMode = mode;
+    this.route?.setMode(mode);
+    this.logEvent(`output mode ${mode}`);
+  }
+
+  getDiagnostics() {
+    return {
+      mode: this.outputMode,
+      context: this.context?.state || 'not started',
+      mediaPaused: this.route?.element.paused ?? null,
+      events: [...this.events]
+    };
   }
 
   mixGain(amount, calibration) {
@@ -230,8 +262,16 @@ export class NoiseEngine {
     if (navigator.audioSession) {
       try { navigator.audioSession.type = 'playback'; } catch (_) { /* optional */ }
     }
-    await this.context.resume();
+    try {
+      await this.context.resume();
+      await this.route.play();
+    } catch (error) {
+      this.route?.pause();
+      await this.context.suspend().catch(() => {});
+      throw new Error(`Couldn't start ${this.outputMode} output: ${error.message || error}`);
+    }
     this.playing = true;
+    this.logEvent('playback started');
     // Restart the timer after a Stop, but preserve it when changing a preset.
     this.endsAt = this.timerMinutes > 0
       ? this.context.currentTime + this.timerMinutes * 60
@@ -246,6 +286,10 @@ export class NoiseEngine {
     this.updateMaster();
     // Let the fade reach silence before suspending the audio graph.
     await new Promise(resolve => setTimeout(resolve, 180));
-    if (!this.playing && this.context.state === 'running') await this.context.suspend();
+    if (!this.playing) {
+      this.route?.pause();
+      if (this.context.state === 'running') await this.context.suspend();
+      this.logEvent('playback stopped');
+    }
   }
 }

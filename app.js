@@ -17,6 +17,44 @@ function cleanEQ(saved) {
   return result;
 }
 const engine = new NoiseEngine();
+const outputModeStorageKey = 'static.output-mode';
+let outputMode = 'media';
+try { outputMode = localStorage.getItem(outputModeStorageKey) === 'direct' ? 'direct' : 'media'; } catch (_) { /* storage optional */ }
+engine.setOutputMode(outputMode);
+const outputModeSelect = $('#outputMode');
+outputModeSelect.value = outputMode;
+function renderDiagnostics() {
+  const diagnostic = engine.getDiagnostics();
+  $('#audioDiagnosticText').textContent = [
+    `Output: ${diagnostic.mode}`,
+    `AudioContext: ${diagnostic.context}`,
+    `Media element paused: ${diagnostic.mediaPaused ?? 'not created'}`,
+    `Page: ${document.visibilityState}`,
+    '',
+    ...diagnostic.events.map(event => `${event.at}  ${event.message}`)
+  ].join('\n');
+}
+outputModeSelect.addEventListener('change', event => {
+  const next = event.target.value;
+  try {
+    engine.setOutputMode(next);
+    outputMode = next;
+    try { localStorage.setItem(outputModeStorageKey, next); } catch (_) {}
+    $('#outputModeNote').textContent = next === 'media'
+      ? 'Media player routes synthesised audio through an HTML audio element. Test with the screen locked.'
+      : 'Original v4 Web Audio output. Use to compare lock-screen behaviour.';
+    renderDiagnostics();
+  } catch (error) {
+    event.target.value = outputMode;
+    $('#outputModeNote').textContent = error.message || String(error);
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  engine.logEvent(`page ${document.visibilityState}; context ${engine.context?.state || 'not started'}`);
+  if (!document.hidden) renderDiagnostics();
+});
+$('#audioDiagnostics').addEventListener('toggle', renderDiagnostics);
+
 let state = {
   preset: 'focus',
   mix: { ...PRESETS[0].mix },
@@ -364,6 +402,8 @@ function updatePlayer() {
   $('#visualiser').classList.toggle('playing', playing);
   $('#stateText').textContent = playing ? 'Now playing' : 'Ready when you are';
   $('#statusText').textContent = playing ? 'Playing on this device' : 'Sound stopped';
+  outputModeSelect.disabled = playing;
+  renderDiagnostics();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
   }
@@ -403,10 +443,12 @@ async function playAudio() {
     $('#errorBanner').hidden = true;
     updatePlayer();
     updateTimerDisplay();
+    renderDiagnostics();
   } catch (error) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = `Couldn't start audio: ${error.message || error}`;
     $('#statusText').textContent = 'Audio unavailable';
+    renderDiagnostics();
     console.error(error);
   } finally {
     busy = false;
@@ -428,6 +470,7 @@ async function stopAudio() {
     button.disabled = false;
     updatePlayer();
     updateTimerDisplay();
+    renderDiagnostics();
   }
 }
 

@@ -78,6 +78,19 @@
             <p class="micro-note">Start low when using headphones.</p>
           </div>
 
+          <div class="playback-test">
+            <label for="outputMode">Background audio test</label>
+            <select id="outputMode" aria-label="Playback output mode">
+              <option value="media">Media player (experimental)</option>
+              <option value="direct">Direct Web Audio (original)</option>
+            </select>
+            <p class="micro-note" id="outputModeNote">Media player routes the synthetic sound through an audio element, which may improve Android lock-screen playback. Stop before switching.</p>
+            <details id="audioDiagnostics">
+              <summary>Playback diagnostics</summary>
+              <pre id="audioDiagnosticText">Press Play to start gathering diagnostic events.</pre>
+            </details>
+          </div>
+
           <div class="timer-section">
             <div>
               <label for="timer">Stop timer</label>
