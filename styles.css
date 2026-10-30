@@ -202,3 +202,12 @@ select { appearance: none; background: #1d3638 url("data:image/svg+xml,%3Csvg xm
 .layer-mark.thunder{background:repeating-radial-gradient(ellipse at 20% 20%,#8696be 0 2px,#30334d 3px 9px);border-color:#5a5c87}
 .sr-only{position:absolute!important;clip:rect(0,0,0,0)!important;clip-path:inset(50%)!important;height:1px!important;width:1px!important;overflow:hidden!important;white-space:nowrap!important}
 @media(max-width:540px){.personal-box,.storm-box{padding:14px 12px}.personal-heading,.storm-title{gap:6px}.utility-button{padding:7px 8px}.personal-actions{gap:6px}.save-button{padding:8px 10px}.personal-chip{padding:8px 10px}.selected-preset-actions{align-items:flex-start;flex-direction:column}.selected-preset-actions div{flex-wrap:wrap}}
+
+/* Optional Android lock-screen playback experiment. */
+.playback-test { border-top: 1px solid #304549; padding: 19px 0 20px; }
+.playback-test label { display: block; margin-bottom: 10px; font-size: 13px; font-weight: 650; }
+.playback-test select { width: 100%; padding: 10px; background: #102327; color: var(--ink); border: 1px solid #446660; border-radius: 8px; }
+.playback-test .micro-note { margin: 9px 0 0; }
+.playback-test details { margin-top: 12px; font-size: 11px; color: var(--muted); }
+.playback-test summary { cursor: pointer; }
+.playback-test pre { padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; background: #0b1c20; border-radius: 7px; }
