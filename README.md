@@ -14,6 +14,17 @@ An Android-first PWA. No build system, dependencies, network requests, audio rec
 - Stop timer with 18-second audio-clock fade, media session support and responsive layout
 - Zero external assets or services
 
+## Android background playback experiment (v4.1)
+
+On some Android/Chrome combinations, direct Web Audio output stutters repeatedly with the screen locked, but immediately recovers when the phone is foregrounded. This version adds an **A/B output mode** under Playback:
+
+- **Media player (experimental)**, the default, pipes the existing synthesised Web Audio graph through a `MediaStreamAudioDestinationNode` to a real HTML audio element. This may get Chrome to manage the session as active media, and leaves all mixing, EQ and storm effects intact.
+- **Direct Web Audio (original)** uses the v4 output to compare the same preset on the same device.
+
+Stop audio before switching. Test each mode for at least five minutes with the screen locked and Bluetooth headphones connected. The diagnostics panel records AudioContext state changes and page visibility transitions when JavaScript is running. If the context stays `running` but audio stutters, that suggests underruns or Android media routing rather than a deliberate `suspend()` call. Diagnostics cannot see every OS-level glitch, and a backgrounded page may not deliver events until it is foregrounded.
+
+**This is a device experiment, not a verified Android background-playback fix.** If both modes stutter, the next path is either a pre-rendered soundscape served to a native browser audio element, or an Android-native foreground playback service. Neither requires sacrificing the existing mixing UI.
+
 ## Android setup
 
 1. Host these files at the root of an **HTTPS** site. GitHub Pages is a straightforward option (project Settings > Pages > publish from main root). The included `.nojekyll` file disables Jekyll processing. No `npm install` or build command is needed.
@@ -56,6 +67,7 @@ npm test   # only Node's built-in test runner; no dependencies
 - `config.js`: eight sound layer definitions, EQ bands and default mixes
 - `personal-presets.js`: versioned, bounded and validated personal preset format
 - `audio-engine.js`: Web Audio graph, live EQ, motion and master compressor
+- `audio-output.js`: switchable HTML media stream or direct Web Audio output
 - `prime-motion-core.js` and `prime-motion-worklet.js`: testable irregular motion envelopes with three overlapping prime-duration swells and smooth, bounded randomness
 - `noise-worklet.js`: coloured continuous noise sources
 - `thunder-worklet.js`: event-based thunder synthesis
