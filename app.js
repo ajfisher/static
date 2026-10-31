@@ -1,4 +1,5 @@
 import { NoiseEngine } from './audio-engine.js';
+import { StreamPreparationGate, streamControlState } from './stream-controls.js';
 import { EQ_BANDS, LAYERS, PRESETS, STORM_DEFAULTS, blankEQ, presetEQ } from './config.js';
 import { cleanSound, loadPersonal, savePersonal, addPersonal, updatePersonal, exportPersonal, importPersonal, MAX_IMPORT_BYTES } from './personal-presets.js';
 
@@ -17,11 +18,13 @@ function cleanEQ(saved) {
   return result;
 }
 const engine = new NoiseEngine();
+const opusPreparation = new StreamPreparationGate();
+let busy = false;
 const outputModeStorageKey = 'static.output-mode';
 let outputMode = 'media';
 try {
   const saved = localStorage.getItem(outputModeStorageKey);
-  outputMode = ['media', 'direct', 'buffered'].includes(saved) ? saved : 'media';
+  outputMode = ['media', 'direct', 'buffered', 'stream'].includes(saved) ? saved : 'media';
 } catch (_) { /* storage optional */ }
 engine.setOutputMode(outputMode);
 const outputModeSelect = $('#outputMode');
@@ -34,6 +37,9 @@ function renderDiagnostics() {
     `Media element paused: ${diagnostic.mediaPaused ?? 'not created'}`,
     `Buffered ready: ${diagnostic.buffered?.ready ?? false}`,
     `Buffered file bytes: ${diagnostic.buffered?.bytes ?? 0}`,
+    `Opus stream ready: ${diagnostic.stream?.ready ?? false}`,
+    `Opus buffered seconds: ${Math.round(diagnostic.stream?.bufferedSeconds ?? 0)}`,
+    `Opus segments: ${diagnostic.stream?.appendedClusters ?? 0}`,
     `Page: ${document.visibilityState}`,
     '',
     ...diagnostic.events.map(event => `${event.at}  ${event.message}`)
@@ -65,13 +71,91 @@ function renderOutputModeHelp() {
   const messages = {
     media: 'Live synthesis through a media element. Improves some lock-screen periods but may still stutter.',
     direct: 'Original direct Web Audio output. Your Android test found persistent stuttering under lock.',
-    buffered: 'Prepare a two-minute WAV while foregrounded, then press Play. No live synthesis is needed while locked.'
+    buffered: 'Prepare a two-minute WAV while foregrounded, then press Play. No live synthesis is needed while locked.',
+    stream: 'Prepare Opus segments, then Play. A single media timeline runs without a loop restart or live synthesis.'
   };
   $('#outputModeNote').textContent = messages[outputMode];
   $('#bufferedControls').hidden = outputMode !== 'buffered';
+  $('#streamControls').hidden = outputMode !== 'stream';
   renderBufferedStatus();
+  renderStreamStatus();
 }
 
+function streamStatusText() {
+  const status = engine.streamPlayer?.getStatus();
+  if (!status?.ready) return 'No Opus stream prepared yet. Generate ahead before locking the phone.';
+  const minutes = (status.seconds / 60).toFixed(1);
+  const buffered = (status.bufferedSeconds / 60).toFixed(1);
+  if (!engine.isStreamReady()) return 'Mix changed. Stop, then Prepare a new Opus stream.';
+  return `${minutes} min generated; ${buffered} min appended to continuous playback timeline.`;
+}
+function renderStreamStatus() {
+  const preparing = opusPreparation.active || engine.streamPlayer?.preparing === true;
+  const flags = streamControlState({
+    preparing,
+    playing: engine.playing,
+    ready: engine.isStreamReady(),
+    transportBusy: busy
+  });
+
+  if (preparing) {
+    const status = engine.streamPlayer?.getStatus();
+    $('#streamStatus').textContent =
+      `Generating: ${status?.seconds ?? 0}s, ${status?.appendedClusters ?? 0} WebM clusters appended…`;
+  } else {
+    $('#streamStatus').textContent = streamStatusText();
+  }
+  $('#streamPrepareBtn').disabled = flags.prepareDisabled;
+  $('#streamExtendBtn').disabled = flags.extendDisabled;
+  if (outputMode === 'stream') {
+    // During an extension, the transport is Stop, so keep it available.
+    // If stopped mid-extension, Play remains blocked until preparation ends.
+    $('#playBtn').disabled = flags.transportDisabled;
+    outputModeSelect.disabled = flags.modeDisabled;
+  }
+}
+engine.onStreamProgress = () => {
+  renderStreamStatus();
+  renderDiagnostics();
+};
+
+async function prepareOpus(minutes) {
+  if (outputMode !== 'stream' || opusPreparation.active) return;
+  try {
+    await opusPreparation.run(async () => {
+      // One operation owns control state until its own asynchronous work ends.
+      // A concurrent click must never release the original operation's lock.
+      renderStreamStatus();
+      $('#errorBanner').hidden = true;
+      try {
+        engine.setMix(state.mix);
+        engine.setAllEQ(state.eq);
+        engine.setStorm(state.storm);
+        engine.setLevel(state.level);
+        await engine.prepareStream(minutes);
+        renderDiagnostics();
+      } catch (error) {
+        $('#streamStatus').textContent = 'Opus preparation failed: ' + (error.message || error);
+        $('#errorBanner').hidden = false;
+        $('#errorBanner').textContent = 'Could not prepare Opus stream: ' + (error.message || error);
+      }
+    });
+  } finally {
+    renderStreamStatus();
+  }
+}
+$('#streamPrepareBtn').addEventListener('click', () => {
+  if (engine.playing || opusPreparation.active) return;
+  void prepareOpus(Number($('#streamDuration').value));
+});
+$('#streamExtendBtn').addEventListener('click', () => {
+  if (opusPreparation.active || !engine.isStreamReady()) return;
+  void prepareOpus(3);
+});
+engine.onStreamEnded = () => {
+  updatePlayer();
+  updateTimerDisplay();
+};
 function renderBufferedStatus() {
   const ready = engine.isBufferedReady();
   $('#bufferedStatus').textContent = engine.playing && outputMode === 'buffered'
@@ -431,7 +515,7 @@ $('#triggerThunderBtn').addEventListener('click', () => {
     return;
   }
   if (!engine.triggerThunder()) {
-    presetNotice('Manual thunder works in live output modes. Buffered mode uses a pre-generated storm.');
+    presetNotice('Manual thunder works in live modes. Buffered and Opus stream modes use pre-generated storms.');
     return;
   }
   presetNotice('Thunder triggered.');
@@ -445,6 +529,7 @@ function updateCurrentSound() {
   $('#visualiser').style.setProperty('--intensity', Math.max(0.3,
     Object.values(state.mix).reduce((sum, val) => sum + val, 0) / 250).toFixed(2));
   renderBufferedStatus();
+  renderStreamStatus();
 }
 
 function updatePlayer() {
@@ -461,6 +546,7 @@ function updatePlayer() {
   $('#statusText').textContent = playing ? 'Playing on this device' : 'Sound stopped';
   outputModeSelect.disabled = playing;
   renderBufferedStatus();
+  renderStreamStatus();
   renderDiagnostics();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
@@ -484,9 +570,13 @@ function updateTimerDisplay() {
   }
 }
 
-let busy = false;
 async function playAudio() {
-  if (busy || engine.playing) return;
+  if (busy || engine.playing || (outputMode === 'stream' && opusPreparation.active)) return;
+  if (outputMode === 'stream' && !engine.isStreamReady()) {
+    $('#errorBanner').hidden = false;
+    $('#errorBanner').textContent = 'Press Prepare Opus stream before Play.';
+    return;
+  }
   if (outputMode === 'buffered' && !engine.isBufferedReady()) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = 'Press Prepare to generate audio for this mix, then press Play.';
@@ -508,6 +598,7 @@ async function playAudio() {
     updateTimerDisplay();
     renderDiagnostics();
     renderBufferedStatus();
+    renderStreamStatus();
   } catch (error) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = `Couldn't start audio: ${error.message || error}`;
@@ -517,6 +608,7 @@ async function playAudio() {
   } finally {
     busy = false;
     button.disabled = false;
+    renderStreamStatus();
   }
 }
 
@@ -536,6 +628,7 @@ async function stopAudio() {
     updateTimerDisplay();
     renderDiagnostics();
     renderBufferedStatus();
+    renderStreamStatus();
   }
 }
 

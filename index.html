@@ -67,7 +67,7 @@
               <span id="playLabel">Play</span>
             </button>
             <span id="statusText" class="play-status" role="status">Sound stopped</span>
-            <span class="micro-note">v4.2 test build</span>
+            <span class="micro-note">v4.3 Opus test</span>
           </div>
 
           <div class="master-section">
@@ -85,7 +85,21 @@
               <option value="media">Media player (experimental)</option>
               <option value="direct">Direct Web Audio (original)</option>
               <option value="buffered">Buffered media (pre-rendered)</option>
+              <option value="stream">Opus stream (segmented)</option>
             </select>
+            <div id="streamControls" class="buffered-controls" hidden>
+              <label for="streamDuration">Initial playback buffer</label>
+              <select id="streamDuration" aria-label="Opus stream preparation duration">
+                <option value="3">3 minutes (quick test)</option>
+                <option value="10">10 minutes (lock-screen test)</option>
+              </select>
+              <div class="stream-actions">
+                <button type="button" class="utility-button" id="streamPrepareBtn">Prepare Opus stream</button>
+                <button type="button" class="utility-button" id="streamExtendBtn" disabled>Add 3 min</button>
+              </div>
+              <p id="streamStatus" role="status">No Opus stream prepared.</p>
+              <p class="micro-note">Prepare while foregrounded, then tap Play. Segments play on one continuous timeline with no two-minute file loop. Adding more requires the app to remain foregrounded. Changes to the mix need a new preparation.</p>
+            </div>
             <div id="bufferedControls" class="buffered-controls" hidden>
               <button type="button" id="prepareBufferedBtn" class="utility-button">Prepare buffered sound</button>
               <p id="bufferedStatus" role="status">Not prepared. Press Prepare, then Play.</p>
