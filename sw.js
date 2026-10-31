@@ -1,6 +1,6 @@
 // Minimal offline-first service worker. No runtime API calls or third-party requests.
 const CACHE_PREFIX = 'static-pwa-';
-const CACHE = `${CACHE_PREFIX}v4.3-opus-mse-test`;
+const CACHE = `${CACHE_PREFIX}v4.3.1-opus-controls-test`;
 const ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   './opus-encoder.js',
   './pcm-seam.js',
   './opus-stream.js',
+  './stream-controls.js',
   './noise-worklet.js',
   './thunder-worklet.js',
   './prime-motion-worklet.js',
