@@ -82,9 +82,40 @@ export class OpusMsePlayer {
     });
   }
 
+  // endOfStream() gives the HTML media element a finite duration and enables
+  // its normal "ended" event when prepared audio runs out. The MSE spec
+  // explicitly permits a later appendBuffer() to reopen an ended MediaSource.
+  sealPrepared() {
+    if (this.mediaSource?.readyState === 'open') {
+      if (this.buffer?.updating) throw new Error('Cannot finalise while SourceBuffer is updating');
+      this.mediaSource.endOfStream();
+    }
+  }
+
+  // Do not destroy the audio element. Resetting its media source permits a
+  // second Prepare after a failure on the very first chunk, with the same mix.
+  resetFailedInitial() {
+    try { this.encoder?.close(); } catch (_) { /* preserve original error */ }
+    this.encoder = null;
+    try { this.audio.pause(); } catch (_) {}
+    this.audio.removeAttribute?.('src');
+    this.audio.load?.();
+    if (this.url) URL.revokeObjectURL(this.url);
+    this.url = null;
+    this.mediaSource = null;
+    this.buffer = null;
+    this.soundKey = null;
+    this.tail = null;
+    this.firstTimestamp = null;
+    this.bytes = 0;
+    this.appendedClusters = 0;
+    this.seconds = 0;
+  }
+
   async prepare(sound, minutes = 3) {
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 15) throw new Error('Choose 1 to 15 minutes');
     if (this.preparing) throw new Error('Stream preparation already in progress');
+    if (this.disposed) throw new Error('Stream was discarded');
     if (this.mediaSource && !this.isReady(sound)) throw new Error('Mix changed; stop and start a new stream');
     this.preparing = true;
     try {
@@ -113,7 +144,19 @@ export class OpusMsePlayer {
         this.seconds += STREAM_CHUNK_SECONDS;
         this.onProgress(this.getStatus());
       }
+      this.sealPrepared();
       return this.getStatus();
+    } catch (error) {
+      if (this.seconds === 0) {
+        // Failed after the init segment but before one complete audio chunk.
+        // Release the broken media source and encoder so the same mix can be
+        // prepared again without changing settings or reloading the page.
+        try { this.resetFailedInitial(); } catch (_) { /* preserve error */ }
+      } else {
+        // Earlier chunks remain playable even if an extension fails.
+        try { this.sealPrepared(); } catch (_) { /* preserve error */ }
+      }
+      throw error;
     } finally { this.preparing = false; }
   }
 
