@@ -41,8 +41,8 @@ test('Opus MSE player appends multiple clusters to one timeline without swapping
   const originalURL=globalThis.URL.createObjectURL,originalRevoke=globalThis.URL.revokeObjectURL;
   globalThis.URL.createObjectURL=()=> 'blob:mock-stream';
   globalThis.URL.revokeObjectURL=()=> {};
-  const buffer={mode:'segments',data:[],listeners:{},addEventListener(n,cb){this.listeners[n]=cb},removeEventListener(n){delete this.listeners[n]},appendBuffer(bytes){this.data.push(bytes);queueMicrotask(()=>this.listeners.updateend?.())}};
-  const mediaSource={readyState:'open',addSourceBuffer(){return buffer},addEventListener(){}};
+  const mediaSource={readyState:'open',endedCount:0,reopenCount:0,addSourceBuffer(){return buffer},addEventListener(){},endOfStream(){this.endedCount++;this.readyState='ended';}};
+  const buffer={mode:'segments',data:[],listeners:{},addEventListener(n,cb){this.listeners[n]=cb},removeEventListener(n){delete this.listeners[n]},appendBuffer(bytes){if(mediaSource.readyState==='ended'){mediaSource.reopenCount++;mediaSource.readyState='open'}this.data.push(bytes);queueMicrotask(()=>this.listeners.updateend?.())}};
   const audio={paused:true, buffered:{length:0},setAttribute(){}, async play(){this.paused=false},pause(){this.paused=true},load(){},removeAttribute(){},remove(){}};
   let packets=0;
   const encoderFactory=()=>({
@@ -59,10 +59,17 @@ test('Opus MSE player appends multiple clusters to one timeline without swapping
     await player.prepare(sound,1);
     assert.equal(player.seconds,60);
     assert.deepEqual(appends,[30,60]);
+    assert.equal(mediaSource.readyState,'ended','prepared timeline must have finite end');
+    assert.equal(mediaSource.endedCount,1);
     assert.ok(buffer.data.length>=3);
     assert.equal(audio.src,'blob:mock-stream');
     assert.equal(player.isReady(sound),true);
     await player.play(sound);assert.equal(audio.paused,false);
+    await player.prepare(sound,1); // Extend the same source after endOfStream().
+    assert.equal(player.seconds,120);
+    assert.equal(mediaSource.endedCount,2);
+    assert.equal(mediaSource.reopenCount,1);
+    assert.equal(audio.src,'blob:mock-stream');
     assert.equal(player.isReady({...sound,mix:{pink:71}}),false);
     player.dispose();
   } finally {OpusMsePlayer.supported=oldSupported;globalThis.URL.createObjectURL=originalURL;globalThis.URL.revokeObjectURL=originalRevoke}
