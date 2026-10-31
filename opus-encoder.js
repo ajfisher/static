@@ -79,6 +79,7 @@ export class OpusStreamEncoder {
     }
     if (!Number.isInteger(maxQueueSize) || maxQueueSize < 2) throw new Error('Invalid encoder queue size');
     const totalFrames = channelData[0].length;
+    if (totalFrames === 0) throw new Error('Cannot encode empty PCM');
     if (totalFrames % OPUS_FRAME_SAMPLES) throw new Error('PCM frames must align to Opus frames');
     for (let offset = 0; offset < totalFrames; offset += OPUS_FRAME_SAMPLES) {
       await this.waitFor(() => this.encoder.encodeQueueSize < maxQueueSize, 'backpressure');
@@ -98,6 +99,9 @@ export class OpusStreamEncoder {
     // A dequeue event can precede the output callback. Give completed codec
     // work a task turn to deliver packets, but do not call flush().
     await new Promise(resolve => setTimeout(resolve, 0));
+    // A slowly scheduled output callback can run later than the dequeue event.
+    // Wait for at least one complete packet rather than failing a valid render.
+    await this.waitFor(() => this.packets.length > 0, 'encoded packet');
     if (this.fatal) throw this.fatal;
     return this.packets.splice(0);
   }
