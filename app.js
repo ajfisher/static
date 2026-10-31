@@ -1,4 +1,5 @@
 import { NoiseEngine } from './audio-engine.js';
+import { StreamPreparationGate, streamControlState } from './stream-controls.js';
 import { EQ_BANDS, LAYERS, PRESETS, STORM_DEFAULTS, blankEQ, presetEQ } from './config.js';
 import { cleanSound, loadPersonal, savePersonal, addPersonal, updatePersonal, exportPersonal, importPersonal, MAX_IMPORT_BYTES } from './personal-presets.js';
 
@@ -17,6 +18,8 @@ function cleanEQ(saved) {
   return result;
 }
 const engine = new NoiseEngine();
+const opusPreparation = new StreamPreparationGate();
+let busy = false;
 const outputModeStorageKey = 'static.output-mode';
 let outputMode = 'media';
 try {
@@ -87,49 +90,66 @@ function streamStatusText() {
   return `${minutes} min generated; ${buffered} min appended to continuous playback timeline.`;
 }
 function renderStreamStatus() {
-  $('#streamStatus').textContent = streamStatusText();
-  $('#streamExtendBtn').disabled = !engine.isStreamReady();
+  const preparing = opusPreparation.active || engine.streamPlayer?.preparing === true;
+  const flags = streamControlState({
+    preparing,
+    playing: engine.playing,
+    ready: engine.isStreamReady(),
+    transportBusy: busy
+  });
+
+  if (preparing) {
+    const status = engine.streamPlayer?.getStatus();
+    $('#streamStatus').textContent =
+      `Generating: ${status?.seconds ?? 0}s, ${status?.appendedClusters ?? 0} WebM clusters appended…`;
+  } else {
+    $('#streamStatus').textContent = streamStatusText();
+  }
+  $('#streamPrepareBtn').disabled = flags.prepareDisabled;
+  $('#streamExtendBtn').disabled = flags.extendDisabled;
+  if (outputMode === 'stream') {
+    // During an extension, the transport is Stop, so keep it available.
+    // If stopped mid-extension, Play remains blocked until preparation ends.
+    $('#playBtn').disabled = flags.transportDisabled;
+    outputModeSelect.disabled = flags.modeDisabled;
+  }
 }
-engine.onStreamProgress = status => {
-  $('#streamStatus').textContent = `Generating: ${status.seconds}s, ${status.appendedClusters} WebM clusters appended…`;
+engine.onStreamProgress = () => {
+  renderStreamStatus();
   renderDiagnostics();
 };
 
 async function prepareOpus(minutes) {
-  const button = $('#streamPrepareBtn');
-  const extend = $('#streamExtendBtn');
-  const play = $('#playBtn');
-  button.disabled = true;
-  extend.disabled = true;
-  play.disabled = true;
-  outputModeSelect.disabled = true;
-  $('#errorBanner').hidden = true;
-  $('#streamStatus').textContent = 'Rendering and encoding audio locally. Keep Static foregrounded.';
+  if (outputMode !== 'stream' || opusPreparation.active) return;
   try {
-    engine.setMix(state.mix);
-    engine.setAllEQ(state.eq);
-    engine.setStorm(state.storm);
-    engine.setLevel(state.level);
-    const result = await engine.prepareStream(minutes);
-    $('#streamStatus').textContent = `Prepared ${(result.seconds / 60).toFixed(1)} min, ${(result.bytes / 1048576).toFixed(2)} MB encoded. Press Play.`;
-    renderDiagnostics();
-  } catch(error) {
-    $('#streamStatus').textContent = 'Opus preparation failed: ' + (error.message || error);
-    $('#errorBanner').hidden = false;
-    $('#errorBanner').textContent = 'Could not prepare Opus stream: ' + (error.message || error);
+    await opusPreparation.run(async () => {
+      // One operation owns control state until its own asynchronous work ends.
+      // A concurrent click must never release the original operation's lock.
+      renderStreamStatus();
+      $('#errorBanner').hidden = true;
+      try {
+        engine.setMix(state.mix);
+        engine.setAllEQ(state.eq);
+        engine.setStorm(state.storm);
+        engine.setLevel(state.level);
+        await engine.prepareStream(minutes);
+        renderDiagnostics();
+      } catch (error) {
+        $('#streamStatus').textContent = 'Opus preparation failed: ' + (error.message || error);
+        $('#errorBanner').hidden = false;
+        $('#errorBanner').textContent = 'Could not prepare Opus stream: ' + (error.message || error);
+      }
+    });
   } finally {
-    button.disabled = false;
-    play.disabled = false;
-    outputModeSelect.disabled = engine.playing;
     renderStreamStatus();
   }
 }
 $('#streamPrepareBtn').addEventListener('click', () => {
-  if (engine.playing) return;
+  if (engine.playing || opusPreparation.active) return;
   void prepareOpus(Number($('#streamDuration').value));
 });
 $('#streamExtendBtn').addEventListener('click', () => {
-  if (!engine.isStreamReady()) return;
+  if (opusPreparation.active || !engine.isStreamReady()) return;
   void prepareOpus(3);
 });
 engine.onStreamEnded = () => {
@@ -550,9 +570,8 @@ function updateTimerDisplay() {
   }
 }
 
-let busy = false;
 async function playAudio() {
-  if (busy || engine.playing) return;
+  if (busy || engine.playing || (outputMode === 'stream' && opusPreparation.active)) return;
   if (outputMode === 'stream' && !engine.isStreamReady()) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = 'Press Prepare Opus stream before Play.';
@@ -589,6 +608,7 @@ async function playAudio() {
   } finally {
     busy = false;
     button.disabled = false;
+    renderStreamStatus();
   }
 }
 
