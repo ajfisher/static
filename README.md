@@ -14,6 +14,16 @@ An Android-first PWA. No build system, dependencies, network requests, audio rec
 - Stop timer with 18-second audio-clock fade, media session support and responsive layout
 - Zero external assets or services
 
+## Android Opus listening update (v4.4)
+
+Android device testing showed that three minutes of prepared Opus segments played successfully with the screen locked and stopped at exactly three minutes, as designed. A repeating rise/fall in perceived level roughly every 30 seconds suggested the segment join rather than browser starvation.
+
+- **Segment joining:** previous equal-gain raised-cosine fades could introduce approximately a 3 dB RMS dip in the two-second transition between independent noise renders. The Opus stream now uses equal-power sine/cosine fades to reduce that systematic dip. Natural preset swells and independently initialised prime-cycle envelopes may still change the sound at a join.
+- **Prepared length:** 3 minutes remains the quick test, 10 minutes remains the lock-screen test, and **30 minutes (long listening test)** is now available. Rendering is done locally while foregrounded. Larger sessions consume more CPU and media buffer memory and may hit browser limits on some phones.
+- **End of playback:** prepared MSE audio deliberately signals its finite endpoint, so playback stops after the prepared duration. It does **not** generate replacement audio indefinitely while locked. Use Add 3 min before the end while the app is in the foreground, or prepare a longer session ahead of time.
+
+To isolate any remaining seam artefact, compare **White noise** with **Waves**: a repeatable dip every 30 seconds on White suggests the stitching path, while gradual variable swells on Waves could be deliberate prime-cycle modulation.
+
 ## Android Opus segmented playback experiment (v4.3)
 
 The Android device test of v4.2 confirmed that a **pre-rendered WAV plays smoothly with the screen locked**, while direct Web Audio chops continuously and the live media-element routing chops intermittently. The WAV loop still had an audible reset every two minutes.

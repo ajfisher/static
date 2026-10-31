@@ -18,16 +18,25 @@ export function spliceRenderedAudio(buffer, previousTail, {
     const source = buffer.getChannelData(c);
     const output = new Float32Array(outputFrames);
     output.set(source.subarray(0, outputFrames));
-    if (previousTail) {
-      for (let i = 0; i < overlapFrames; i++) {
-        const t = i / (overlapFrames - 1);
-        // Raised-cosine crossfade blends two independent random signal phases.
-        const weight = (1 - Math.cos(Math.PI * t)) * .5;
-        output[i] = previousTail[c][i] * (1 - weight) + output[i] * weight;
-      }
-    }
     channels.push(output);
     tail.push(source.slice(outputFrames, outputFrames + overlapFrames));
+  }
+
+  if (previousTail) {
+    for (let i = 0; i < overlapFrames; i++) {
+      const t = i / (overlapFrames - 1);
+      // Two independent synthetic noise renders have uncorrelated phases.
+      // Equal-gain fades (including a raised-cosine weight) lose ~3 dB RMS
+      // at the midpoint, heard as pumping every 30 seconds.
+      // Quarter-sine / quarter-cosine gains preserve their expected power:
+      //   fadeOut² + fadeIn² = 1.
+      const angle = Math.PI * t * 0.5;
+      const fadeOut = Math.cos(angle);
+      const fadeIn = Math.sin(angle);
+      for (let c = 0; c < 2; c++) {
+        channels[c][i] = previousTail[c][i] * fadeOut + channels[c][i] * fadeIn;
+      }
+    }
   }
   return {channels, tail};
 }

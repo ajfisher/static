@@ -10,6 +10,14 @@ export const STREAM_CHUNK_SECONDS = 30;
 export const STREAM_OVERLAP_SECONDS = 2;
 export const STREAM_MIME = 'audio/webm; codecs="opus"';
 
+export const STREAM_MAX_PREPARE_MINUTES = 30;
+export function validatePrepareMinutes(minutes) {
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > STREAM_MAX_PREPARE_MINUTES) {
+    throw new Error('Choose 1 to ' + STREAM_MAX_PREPARE_MINUTES + ' minutes');
+  }
+  return minutes;
+}
+
 export class OpusMsePlayer {
   constructor({ render = renderOfflineAudio, mediaSourceFactory = () => new MediaSource(),
     createElement = () => document.createElement('audio'), encoderFactory = () => new OpusStreamEncoder(),
@@ -113,7 +121,7 @@ export class OpusMsePlayer {
   }
 
   async prepare(sound, minutes = 3) {
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 15) throw new Error('Choose 1 to 15 minutes');
+    validatePrepareMinutes(minutes);
     if (this.preparing) throw new Error('Stream preparation already in progress');
     if (this.disposed) throw new Error('Stream was discarded');
     if (this.mediaSource && !this.isReady(sound)) throw new Error('Mix changed; stop and start a new stream');
