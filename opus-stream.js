@@ -113,7 +113,7 @@ export class OpusMsePlayer {
   }
 
   async prepare(sound, minutes = 3) {
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 15) throw new Error('Choose 1 to 15 minutes');
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 30) throw new Error('Choose 1 to 30 minutes');
     if (this.preparing) throw new Error('Stream preparation already in progress');
     if (this.disposed) throw new Error('Stream was discarded');
     if (this.mediaSource && !this.isReady(sound)) throw new Error('Mix changed; stop and start a new stream');
