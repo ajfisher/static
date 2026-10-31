@@ -1,6 +1,6 @@
 // Minimal offline-first service worker. No runtime API calls or third-party requests.
 const CACHE_PREFIX = 'static-pwa-';
-const CACHE = `${CACHE_PREFIX}v4.2-buffered-lockscreen-test`;
+const CACHE = `${CACHE_PREFIX}v4.3-opus-mse-test`;
 const ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,10 @@ const ASSETS = [
   './audio-output.js',
   './buffered-render.js',
   './buffered-playback.js',
+  './webm-opus.js',
+  './opus-encoder.js',
+  './pcm-seam.js',
+  './opus-stream.js',
   './noise-worklet.js',
   './thunder-worklet.js',
   './prime-motion-worklet.js',

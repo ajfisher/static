@@ -21,7 +21,7 @@ const outputModeStorageKey = 'static.output-mode';
 let outputMode = 'media';
 try {
   const saved = localStorage.getItem(outputModeStorageKey);
-  outputMode = ['media', 'direct', 'buffered'].includes(saved) ? saved : 'media';
+  outputMode = ['media', 'direct', 'buffered', 'stream'].includes(saved) ? saved : 'media';
 } catch (_) { /* storage optional */ }
 engine.setOutputMode(outputMode);
 const outputModeSelect = $('#outputMode');
@@ -34,6 +34,9 @@ function renderDiagnostics() {
     `Media element paused: ${diagnostic.mediaPaused ?? 'not created'}`,
     `Buffered ready: ${diagnostic.buffered?.ready ?? false}`,
     `Buffered file bytes: ${diagnostic.buffered?.bytes ?? 0}`,
+    `Opus stream ready: ${diagnostic.stream?.ready ?? false}`,
+    `Opus buffered seconds: ${Math.round(diagnostic.stream?.bufferedSeconds ?? 0)}`,
+    `Opus segments: ${diagnostic.stream?.appendedClusters ?? 0}`,
     `Page: ${document.visibilityState}`,
     '',
     ...diagnostic.events.map(event => `${event.at}  ${event.message}`)
@@ -65,13 +68,74 @@ function renderOutputModeHelp() {
   const messages = {
     media: 'Live synthesis through a media element. Improves some lock-screen periods but may still stutter.',
     direct: 'Original direct Web Audio output. Your Android test found persistent stuttering under lock.',
-    buffered: 'Prepare a two-minute WAV while foregrounded, then press Play. No live synthesis is needed while locked.'
+    buffered: 'Prepare a two-minute WAV while foregrounded, then press Play. No live synthesis is needed while locked.',
+    stream: 'Prepare Opus segments, then Play. A single media timeline runs without a loop restart or live synthesis.'
   };
   $('#outputModeNote').textContent = messages[outputMode];
   $('#bufferedControls').hidden = outputMode !== 'buffered';
+  $('#streamControls').hidden = outputMode !== 'stream';
   renderBufferedStatus();
+  renderStreamStatus();
 }
 
+function streamStatusText() {
+  const status = engine.streamPlayer?.getStatus();
+  if (!status?.ready) return 'No Opus stream prepared yet. Generate ahead before locking the phone.';
+  const minutes = (status.seconds / 60).toFixed(1);
+  const buffered = (status.bufferedSeconds / 60).toFixed(1);
+  if (!engine.isStreamReady()) return 'Mix changed. Stop, then Prepare a new Opus stream.';
+  return `${minutes} min generated; ${buffered} min appended to continuous playback timeline.`;
+}
+function renderStreamStatus() {
+  $('#streamStatus').textContent = streamStatusText();
+  $('#streamExtendBtn').disabled = !engine.isStreamReady();
+}
+engine.onStreamProgress = status => {
+  $('#streamStatus').textContent = `Generating: ${status.seconds}s, ${status.appendedClusters} WebM clusters appended…`;
+  renderDiagnostics();
+};
+
+async function prepareOpus(minutes) {
+  const button = $('#streamPrepareBtn');
+  const extend = $('#streamExtendBtn');
+  const play = $('#playBtn');
+  button.disabled = true;
+  extend.disabled = true;
+  play.disabled = true;
+  outputModeSelect.disabled = true;
+  $('#errorBanner').hidden = true;
+  $('#streamStatus').textContent = 'Rendering and encoding audio locally. Keep Static foregrounded.';
+  try {
+    engine.setMix(state.mix);
+    engine.setAllEQ(state.eq);
+    engine.setStorm(state.storm);
+    engine.setLevel(state.level);
+    const result = await engine.prepareStream(minutes);
+    $('#streamStatus').textContent = `Prepared ${(result.seconds / 60).toFixed(1)} min, ${(result.bytes / 1048576).toFixed(2)} MB encoded. Press Play.`;
+    renderDiagnostics();
+  } catch(error) {
+    $('#streamStatus').textContent = 'Opus preparation failed: ' + (error.message || error);
+    $('#errorBanner').hidden = false;
+    $('#errorBanner').textContent = 'Could not prepare Opus stream: ' + (error.message || error);
+  } finally {
+    button.disabled = false;
+    play.disabled = false;
+    outputModeSelect.disabled = engine.playing;
+    renderStreamStatus();
+  }
+}
+$('#streamPrepareBtn').addEventListener('click', () => {
+  if (engine.playing) return;
+  void prepareOpus(Number($('#streamDuration').value));
+});
+$('#streamExtendBtn').addEventListener('click', () => {
+  if (!engine.isStreamReady()) return;
+  void prepareOpus(3);
+});
+engine.onStreamEnded = () => {
+  updatePlayer();
+  updateTimerDisplay();
+};
 function renderBufferedStatus() {
   const ready = engine.isBufferedReady();
   $('#bufferedStatus').textContent = engine.playing && outputMode === 'buffered'
@@ -431,7 +495,7 @@ $('#triggerThunderBtn').addEventListener('click', () => {
     return;
   }
   if (!engine.triggerThunder()) {
-    presetNotice('Manual thunder works in live output modes. Buffered mode uses a pre-generated storm.');
+    presetNotice('Manual thunder works in live modes. Buffered and Opus stream modes use pre-generated storms.');
     return;
   }
   presetNotice('Thunder triggered.');
@@ -445,6 +509,7 @@ function updateCurrentSound() {
   $('#visualiser').style.setProperty('--intensity', Math.max(0.3,
     Object.values(state.mix).reduce((sum, val) => sum + val, 0) / 250).toFixed(2));
   renderBufferedStatus();
+  renderStreamStatus();
 }
 
 function updatePlayer() {
@@ -461,6 +526,7 @@ function updatePlayer() {
   $('#statusText').textContent = playing ? 'Playing on this device' : 'Sound stopped';
   outputModeSelect.disabled = playing;
   renderBufferedStatus();
+  renderStreamStatus();
   renderDiagnostics();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
@@ -487,6 +553,11 @@ function updateTimerDisplay() {
 let busy = false;
 async function playAudio() {
   if (busy || engine.playing) return;
+  if (outputMode === 'stream' && !engine.isStreamReady()) {
+    $('#errorBanner').hidden = false;
+    $('#errorBanner').textContent = 'Press Prepare Opus stream before Play.';
+    return;
+  }
   if (outputMode === 'buffered' && !engine.isBufferedReady()) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = 'Press Prepare to generate audio for this mix, then press Play.';
@@ -508,6 +579,7 @@ async function playAudio() {
     updateTimerDisplay();
     renderDiagnostics();
     renderBufferedStatus();
+    renderStreamStatus();
   } catch (error) {
     $('#errorBanner').hidden = false;
     $('#errorBanner').textContent = `Couldn't start audio: ${error.message || error}`;
@@ -536,6 +608,7 @@ async function stopAudio() {
     updateTimerDisplay();
     renderDiagnostics();
     renderBufferedStatus();
+    renderStreamStatus();
   }
 }
 

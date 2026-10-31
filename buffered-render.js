@@ -101,7 +101,7 @@ function lfo(context, component, target) {
 
 // Renders a complete, tunable soundscape without hardware output.
 // All sound layers reuse Static's current AudioWorklet implementations.
-export async function renderOfflineMix(sound, {
+export async function renderOfflineAudio(sound, {
   durationSeconds = BUFFER_SECONDS,
   sampleRate = BUFFER_RATE,
   crossfadeSeconds = BUFFER_CROSSFADE_SECONDS
@@ -192,5 +192,14 @@ export async function renderOfflineMix(sound, {
     tail.connect(gain).connect(compressor);
   }
   const audio = await context.startRendering();
-  return encodeLoopedWav(audio, { durationSeconds, crossfadeSeconds });
+  return audio;
+}
+
+// Preserve the v4.2 finite-loop renderer alongside the raw AudioBuffer API.
+export async function renderOfflineMix(sound, options = {}) {
+  const audio = await renderOfflineAudio(sound, options);
+  return encodeLoopedWav(audio, {
+    durationSeconds: options.durationSeconds ?? BUFFER_SECONDS,
+    crossfadeSeconds: options.crossfadeSeconds ?? BUFFER_CROSSFADE_SECONDS
+  });
 }

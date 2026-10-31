@@ -14,6 +14,29 @@ An Android-first PWA. No build system, dependencies, network requests, audio rec
 - Stop timer with 18-second audio-clock fade, media session support and responsive layout
 - Zero external assets or services
 
+## Android Opus segmented playback experiment (v4.3)
+
+The Android device test of v4.2 confirmed that a **pre-rendered WAV plays smoothly with the screen locked**, while direct Web Audio chops continuously and the live media-element routing chops intermittently. The WAV loop still had an audible reset every two minutes.
+
+**Opus stream (segmented)** is the next experiment. It uses `OfflineAudioContext` to synthesise audio while Static is foregrounded, keeps the same sound layers/EQ/thunder processing, and encodes stereo 48 kHz Opus at approximately 128 kbps through WebCodecs. The app packages raw Opus packets in WebM initialization and timestamped Cluster segments for Media Source Extensions (MSE). The *same HTML audio element* plays all segments as one continuous timeline, rather than restarting a WAV file.
+
+**Android test:**
+
+1. Update the installed PWA while online. Choose **Opus stream (segmented)** under Background audio test.
+2. Select **Flight** or **Waves**, then **3 minutes (quick test)** and **Prepare Opus stream**. Keep the screen on during preparation.
+3. After the stream is prepared, press **Play** as a separate tap. Listen through the 30-second segment boundaries; they should not click or cut.
+4. Lock the screen, listen for two minutes and check whether playback remains smooth. The prepared buffer is meant to keep playing independently of JavaScript activity.
+5. Repeat using **10 minutes (lock-screen test)**. To extend an existing stream, foreground Static and tap **Add 3 min** before reaching the buffer end.
+6. Compare the results with **Buffered media (pre-rendered)**, which was already smooth except at its two-minute loop seam.
+
+This is **not yet a guarantee of unlimited background playback**. Further audio can be generated and appended while the app is foregrounded, but Android may suspend generation while locked. Pre-generate enough audio before a flight. The prebuffer is held in this browser session only, not saved across PWA restarts.
+
+Each 30-second synthetic render has two additional seconds of PCM used to crossfade into the next independently rendered chunk; an uninterrupted Opus encoder and absolute WebM timestamps prevent the two-minute file restart. The prime-cycle state is not yet persisted between offline renders, so the crossfade softens the transition rather than modelling one unbroken weather system.
+
+**Runtime support:** requires WebCodecs `AudioEncoder` for Opus, `AudioData`, `MediaSource.isTypeSupported('audio/webm; codecs="opus"')`, and offline audio worklets. The app checks these at preparation time and keeps earlier playback modes available if unsupported.
+
+**Current trade-offs:** Mix and EQ changes apply after stopping and preparing a new stream; master volume is immediate. Manual thunder triggering requires a live mode. The stop timer remains best-effort because background JS timers can be throttled. Longer buffers require foreground rendering time, and may increase CPU use during preparation.
+
 ## Android buffered playback experiment (v4.2)
 
 Earlier Android tests showed that **Direct Web Audio** chopped continuously on lock, whereas **Media player** improved but still chopped in recurring intervals roughly every minute.
@@ -108,3 +131,4 @@ npm test   # only Node's built-in test runner; no dependencies
 - This is a sound-design iteration, not an acoustic simulation. Evaluate in headphones at a comfortable volume; the most useful feedback is whether the wave and rain patterns still sound mechanical.
 
 - `buffered-render.js` and `buffered-playback.js`: OfflineAudioContext rendering, PCM WAV looping and HTML media playback
+- `opus-encoder.js`, `webm-opus.js`, `pcm-seam.js`, `opus-stream.js`: WebCodecs Opus encoding, WebM muxing, crossfaded PCM transitions and continuous MSE playback
